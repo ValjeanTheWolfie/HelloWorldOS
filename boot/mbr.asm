@@ -1,9 +1,9 @@
 ;==================================================
-;  The loading program for the Master Boot Record
+;  The loader program for the Master Boot Record
 ;--------------------------------------------------
 ; 2020.3.28  ValjeanTheWolfie  Create
 ;==================================================
-%include 'commondefs.asm'
+%include "./commondefs.asm"
 
 SECTION LOADER vstart=0x7c00
     ;Initialize the segment registers using the values in CS
@@ -15,34 +15,58 @@ SECTION LOADER vstart=0x7c00
     ;Initialize the stack pointer register
     mov sp, 0x7c00
 
-    ;clear the screen
-    ; mov ax, 0x600
-    ; mov bx, 0x700
-    ; mov cx, 0
-    ; mov dx, 0x184f
-    ; int 10h
 
-    ;get cursor position
-    mov ah, 3
-    mov bh, 0
+    ;-------------------------------------------
+    ;  BIOS interrupt: INT 10H / AH=03H
+    ;-------------------------------------------
+    ; Function ：Read cursor info in the text mode
+    ; Note: [i] - input parameters; [o] - output parameters
+    ;-------------------------------------------
+    ;         AH/BH/CH/DH               AL/BL/CL/DL
+    ; AX    [i] 03H                          -
+    ; BX    [i] page No.                     -
+    ; CX    [o] begin bitmap line     [o] end bitmap line     (cursor shape)
+    ; DX    [o] Y coordinate          [o] X coordinate        (cursor position)
+    mov ah, 03h
+    mov bh, 00h
     int 10h
 
-    ;Call the BIOS interrupt to display the message on the screen
-    mov ax, message
-    mov bp, ax
-    
-    mov cx, msgLen
-    mov ah, 0x13
-    mov al, 0x01
-    mov bl, 0x0f
+    ;Call the BIOS interrupt to display the booting message on the screen
+    ;-------------------------------------------
+    ;  BIOS interrupt: INT 10H / AH=13H
+    ;-------------------------------------------
+    ; Function ：Print strings in the Teletype Mode
+    ;-------------------------------------------
+    ;         AH/BH/CH/DH               AL/BL/CL/DL
+    ; AX    [i] 13H                [i] output mode (0 - 3)
+    ; BX    [i] Page No.           [i] character properties(if AL = 0 or 1)
+    ; CX                 [i] string length
+    ; DX    [i] Y coordinate       [i] X coordinate           (cursor position)
+    ; ES:BP              [i] string address
 
+    ;The parameters for BH, DH and DL have already obtained by INT 10H/AH=03H.
+    mov bl, 0x0f ;BL: Character properties
+                 ;(MSB)  7   6   5   4   3   2   1   0   (LSB)
+                 ;       |   R   G   B   |   R   G   B
+                 ;       v   Background  v   Forecolor
+                 ;Blinking(1/0 - Y/N)  Brightness(0 - low, 1 - high)
+    mov cx, boot_message_len
+    ;BP cannot be assigned by an immediate number, so use AX for assistance
+    mov ax, boot_message
+    mov bp, ax
+    ;Then set values for AX
+    mov ah, 13H
+    mov al, 01b ;bit0: If set 1, move the cursor when finishing printing the string
+                ;bit1: Each character in the string contain its property if set 1, 
+                ;      otherwise use the one set in BL.
+                ;bit2-bit7: not used
     int 10h
 
     jmp $
 
 
-    message db "Yeah! The boot loader program has been successfully executed!!", CR, LF, 0
-    msgLen equ ($ - message - 1)
+    boot_message db CR, LF, "Loading the boot program. Please wait...", CR, LF, 0
+    boot_message_len equ ($ - boot_message - 1)
 
 
     times 510 - ($ - $$) db 0
