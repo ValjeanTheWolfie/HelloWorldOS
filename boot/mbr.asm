@@ -1,11 +1,11 @@
 ;==================================================
-;  The loader program for the Master Boot Record
+;            The Master Boot Record
 ;--------------------------------------------------
 ; 2020.3.28  ValjeanTheWolfie  Create
 ;==================================================
-%include "./commondefs.asm"
+%include "boot.inc"
 
-SECTION LOADER vstart=0x7c00
+SECTION MBR vstart=0x7c00
     ;Initialize the segment registers using the values in CS
     mov ax, cs
     mov ds, ax
@@ -19,8 +19,8 @@ SECTION LOADER vstart=0x7c00
     ;-------------------------------------------
     ;  BIOS interrupt: INT 10H / AH=03H
     ;-------------------------------------------
-    ; Function ：Read cursor info in the text mode
-    ; Note: [i] - input parameters; [o] - output parameters
+    ; Function ：Read Cursor Position
+    ; Note: [i] - input parameters; [o] - returned parameters
     ;-------------------------------------------
     ;         AH/BH/CH/DH               AL/BL/CL/DL
     ; AX    [i] 03H                          -
@@ -35,7 +35,7 @@ SECTION LOADER vstart=0x7c00
     ;-------------------------------------------
     ;  BIOS interrupt: INT 10H / AH=13H
     ;-------------------------------------------
-    ; Function ：Print strings in the Teletype Mode
+    ; Function ：Write String
     ;-------------------------------------------
     ;         AH/BH/CH/DH               AL/BL/CL/DL
     ; AX    [i] 13H                [i] output mode (0 - 3)
@@ -50,9 +50,9 @@ SECTION LOADER vstart=0x7c00
                  ;       |   R   G   B   |   R   G   B
                  ;       v   Background  v   Forecolor
                  ;Blinking(1/0 - Y/N)  Brightness(0 - low, 1 - high)
-    mov cx, boot_message_len
+    mov cx, start_message_len
     ;BP cannot be assigned by an immediate number, so use AX for assistance
-    mov ax, boot_message
+    mov ax, start_message
     mov bp, ax
     ;Then set values for AX
     mov ah, 13H
@@ -62,12 +62,63 @@ SECTION LOADER vstart=0x7c00
                 ;bit2-bit7: not used
     int 10h
 
+    ;Call the BIOS interrupt to load the hard disk
+    ;-------------------------------------------
+    ;  BIOS interrupt: INT 13H / AH=02H
+    ;-------------------------------------------
+    ; Function ：Read Desired Sectors Into Memory
+    ;-------------------------------------------
+    ;         AH/BH/CH/DH               AL/BL/CL/DL
+    ; AX    [i] 02H                [i] number of sectors
+    ; ES:BX             [i] Address of buffer
+    ; CX    [i] track number       [i] sector number
+    ; DX    [i] head number        [i] drive number
+    ;
+    ; On Return:
+    ; CF = 1 - Status is non 0
+    ;    = 0 - Status is 0
+    ; (Al) - Number of sectors actually transferred
+    ; (AH) - Status of operation 
+    mov si, 5 ;The maximum attempts to read the disk
+read_loader:
+    mov ah, 02h
+    mov al, LOADER_SECTOR_COUNT
+    mov bx, LOADER_BASE_ADDRESS
+    mov cx, 0
+    mov cl, LOADER_START_SECTOR
+    mov dx, 0
+    mov dl, 0x80
+    int 13h
+    jc read_fail
+    jmp LOADER_BASE_ADDRESS
+read_fail:
+    dec si
+    cmp si, 0
+    jnz read_loader
+    ;After 5 attempts, print the reading failure message and halt the system
+    mov ah, 03h
+    mov bh, 00h
+    int 10h
+    mov bl, 0x0f
+    mov cx, read_fail_messagelen
+    mov ax, read_fail_message
+    mov bp, ax
+    mov ah, 13H
+    mov al, 01b 
+    int 10h
     jmp $
 
+; ==================
+;    Data part
+; ==================
+    start_message db CR, LF, "Starting TinySYS...", CR, LF, 0
+    start_message_len equ ($ - start_message - 1)
 
-    boot_message db CR, LF, "Loading the boot program. Please wait...", CR, LF, 0
-    boot_message_len equ ($ - boot_message - 1)
+    read_fail_message db "Failed to read the hard disk. Please examine the hardware settings!", CR, LF, 0
+    read_fail_messagelen equ ($ - read_fail_message - 1)
 
-
+; =====================
+;   MBR bootable mark
+; =====================
     times 510 - ($ - $$) db 0
     dw 0xaa55
