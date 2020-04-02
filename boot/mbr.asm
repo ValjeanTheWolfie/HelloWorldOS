@@ -31,7 +31,7 @@ SECTION MBR vstart=0x7c00
     mov bh, 00h
     int 10h
 
-    ;Call the BIOS interrupt to display the booting message on the screen
+    ;Call BIOS interrupt to display the booting message on the screen
     ;-------------------------------------------
     ;  BIOS interrupt: INT 10H / AH=13H
     ;-------------------------------------------
@@ -43,26 +43,29 @@ SECTION MBR vstart=0x7c00
     ; CX                 [i] string length
     ; DX    [i] Y coordinate       [i] X coordinate           (cursor position)
     ; ES:BP              [i] string address
+    ; - Character properties (for BL)
+    ;     (MSB)  7   6   5   4   3   2   1   0   (LSB)
+    ;            |   R   G   B   |   R   G   B
+    ;            v   Background  v   Forecolor
+    ;     Blinking(1/0 - Y/N)  Brightness(0 - low, 1 - high)
+    ; - Output mode (for AL)
+    ;       bit0: If set 1, move the cursor when finishing printing the string
+    ;       bit1: Each character in the string contain its property if set 1, 
+    ;             otherwise use the one set in BL.
+    ;       bit2-bit7: not used
 
     ;The parameters for BH, DH and DL have already obtained by INT 10H/AH=03H.
-    mov bl, 0x0f ;BL: Character properties
-                 ;(MSB)  7   6   5   4   3   2   1   0   (LSB)
-                 ;       |   R   G   B   |   R   G   B
-                 ;       v   Background  v   Forecolor
-                 ;Blinking(1/0 - Y/N)  Brightness(0 - low, 1 - high)
+    mov bl, 0x0f 
     mov cx, start_message_len
     ;BP cannot be assigned by an immediate number, so use AX for assistance
     mov ax, start_message
     mov bp, ax
     ;Then set values for AX
     mov ah, 13H
-    mov al, 01b ;bit0: If set 1, move the cursor when finishing printing the string
-                ;bit1: Each character in the string contain its property if set 1, 
-                ;      otherwise use the one set in BL.
-                ;bit2-bit7: not used
+    mov al, 01b 
     int 10h
 
-    ;Call the BIOS interrupt to load the hard disk
+    ;Call BIOS interrupt to load loader from the hard disk
     ;-------------------------------------------
     ;  BIOS interrupt: INT 13H / AH=02H
     ;-------------------------------------------
@@ -74,11 +77,12 @@ SECTION MBR vstart=0x7c00
     ; CX    [i] track number       [i] sector number
     ; DX    [i] head number        [i] drive number
     ;
-    ; On Return:
-    ; CF = 1 - Status is non 0
-    ;    = 0 - Status is 0
-    ; (Al) - Number of sectors actually transferred
-    ; (AH) - Status of operation 
+    ; - On Return:
+    ;   CF = 1 - Status is non 0
+    ;      = 0 - Status is 0
+    ;   AL: Number of sectors actually transferred
+    ;   AH: Status of operation 
+
     mov si, 5 ;The maximum attempts to read the disk
 read_loader:
     mov ah, 02h
@@ -117,8 +121,9 @@ read_fail:
     read_fail_message db "Failed to read the hard disk. Please examine the hardware settings!", CR, LF, 0
     read_fail_messagelen equ ($ - read_fail_message - 1)
 
-; =====================
-;   MBR bootable mark
-; =====================
-    times 510 - ($ - $$) db 0
-    dw 0xaa55
+; ========================
+;   Disk Partition Table
+; ========================
+    times 510 - ($ - $$) - 64 db 0 ;Padding data
+    times 64 db 0                  ;Disk partition table is currently empty
+    dw 0xaa55                      ;Bootable mark
