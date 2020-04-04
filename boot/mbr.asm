@@ -86,15 +86,15 @@ SECTION MBR vstart=0x7c00
     mov si, 5 ;The maximum attempts to read the disk
 read_loader:
     mov ah, 02h
-    mov al, LOADER_SECTOR_COUNT
-    mov bx, LOADER_BASE_ADDRESS
+    mov al, HD_SECTOR_CNT_LOADER
+    mov bx, BASE_ADDRESS_LOADER
     mov cx, 0
-    mov cl, LOADER_START_SECTOR
+    mov cl, HD_SECTOR_LOADER
     mov dx, 0
     mov dl, 0x80
     int 13h
     jc read_fail
-    jmp LOADER_BASE_ADDRESS
+    jmp BASE_ADDRESS_LOADER
 read_fail:
     dec si
     cmp si, 0
@@ -118,12 +118,11 @@ read_fail:
     start_message db CR, LF, "Starting TinySYS...", CR, LF, 0
     start_message_len equ ($ - start_message - 1)
 
-    read_fail_message db "Failed to read the hard disk. Please examine the hardware settings!", CR, LF, 0
+    read_fail_message db "Failed to read the hard disk. Please examine the hardware setting and restart the system.", CR, LF, 0
     read_fail_messagelen equ ($ - read_fail_message - 1)
 
 ; ========================
 ;   Disk Partition Table
 ; ========================
-    times 510 - ($ - $$) - 64 db 0 ;Padding data
-    times 64 db 0                  ;Disk partition table is currently empty
-    dw 0xaa55                      ;Bootable mark
+    times 510 - ($ - $$)db 0 ;Padding data
+    dw 0xaa55                ;Bootable mark
