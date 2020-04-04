@@ -87,14 +87,14 @@ SECTION MBR vstart=0x7c00
 read_loader:
     mov ah, 02h
     mov al, HD_SECTOR_CNT_LOADER
-    mov bx, BASE_ADDRESS_LOADER
+    mov bx, BASE_ADDRESS_LOADER_CODE
     mov cx, 0
     mov cl, HD_SECTOR_LOADER
     mov dx, 0
     mov dl, 0x80
     int 13h
     jc read_fail
-    jmp BASE_ADDRESS_LOADER
+    jmp BASE_ADDRESS_LOADER_CODE
 read_fail:
     dec si
     cmp si, 0
