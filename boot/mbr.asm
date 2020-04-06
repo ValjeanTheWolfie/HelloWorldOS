@@ -25,7 +25,7 @@ SECTION MBR vstart=0x7c00
     ;         AH/BH/CH/DH               AL/BL/CL/DL
     ; AX    [i] 03H                          -
     ; BX    [i] page No.                     -
-    ; CX    [o] begin bitmap line     [o] end bitmap line     (cursor shape)
+    ; CX    [o] top bitmap line       [o] bottom bitmap line  (cursor shape)
     ; DX    [o] Y coordinate          [o] X coordinate        (cursor position)
     mov ah, 03h
     mov bh, 00h
