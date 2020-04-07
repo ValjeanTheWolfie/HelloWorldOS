@@ -17,17 +17,17 @@ GDT_FLAGS_4K_16 equ 1000b
 GDT_FLAGS_4K_32 equ 1100b
 
 %define GDT_ENTRY(baseAddr, limit, accessByte, flag)                        \
-    dw limit,                                                               \
+    dw limit & 0xFFFF,                                                               \
        baseAddr & 0xFFFF,                                                   \
        (accessByte << 8) | ((baseAddr >> 16) & 0xFF),                       \
        ((baseAddr >> 24) & 0xFF00) | (flag << 4) | ((limit >> 16) & 0xF)
 
 SECTION LOADER vstart=BASE_ADDRESS_GDT
     ; 0 - The 1st GDT entry is inaccessible
-    GDT_ENTRY(0, 0, 0, 0) 
-    ; 1 - The GDT table segment
+    GDT_ENTRY(0, 0, 0, 0)
+    ; 1 - The GDT segment
     GDT_ENTRY(BASE_ADDRESS_GDT, (GDT_TABLE_SIZE - 1), GDT_ACCESS_BYTE_DATA, GDT_FLAGS_1B_32)
-    ; 2 - The video memory segment
+    ; 2 - The video memory (text) segment
     GDT_ENTRY(BASE_ADDRESS_VIDEO_MEMORY, LIMIT_VIDEO, GDT_ACCESS_BYTE_DATA, GDT_FLAGS_4K_32)
     ; 3 - The stack segment
     GDT_ENTRY(BASE_ADDRESS_STACK, LIMIT_STACK, GDT_ACCESS_BYTE_DATA, GDT_FLAGS_4K_32)
@@ -65,9 +65,13 @@ SECTION LOADER vstart=BASE_ADDRESS_GDT
 ; S    : Descriptor type. This bit should be set for code or data segments and should be cleared for system segments (eg. a Task State Segment)
 ; Ex   : Executable bit. If 1 code in this segment can be executed, ie. a code selector. If 0 it is a data selector.
 ; DC   : Direction bit/Conforming bit.
-;          Direction bit for data selectors: Tells the direction. 0 the segment grows up. 1 the segment grows down, ie. the offset has to be greater than the limit.
-;          Conforming bit for code selectors:  If 1 code in this segment can be executed from an equal or lower privilege level. For example, code in ring 3 can far-jump to conforming code in a ring 2 segment. The privl-bits represent the highest privilege level that is allowed to execute the segment. For example, code in ring 0 cannot far-jump to a conforming code segment with privl==0x2, while code in ring 2 and 3 can. Note that the privilege level remains the same, ie. a far-jump form ring 3 to a privl==2-segment remains in ring 3 after the jump.
-;                                              If 0 code in this segment can only be executed from the ring set in privl.
+;        Direction  bit for data selectors: Tells the direction. 0 the segment grows up. 1 the segment grows down, ie. the offset has to be greater than the limit.
+;        Conforming bit for code selectors: If 1 code in this segment can be executed from an equal or lower privilege level. 
+;                                           For example, code in ring 3 can far-jump to conforming code in a ring 2 segment. 
+;                                           The privl-bits represent the highest privilege level that is allowed to execute the segment. 
+;                                           For example, code in ring 0 cannot far-jump to a conforming code segment with privl==0x2, while code in ring 2 and 3 can. 
+;                                           Note that the privilege level remains the same, ie. a far-jump form ring 3 to a privl==2-segment remains in ring 3 after the jump.
+;                                           If 0 code in this segment can only be executed from the ring set in privl.
 ; RW   : Readable bit/Writable bit.  Readable bit for code selectors: Whether read access for this segment is allowed. Write access is never allowed for code segments.
 ;                                    Writable bit for data selectors: Whether write access for this segment is allowed. Read access is always allowed for data segments.
 ; Ac   : Accessed bit. Just set to 0. The CPU sets this to 1 when the segment is accessed.
