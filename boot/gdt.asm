@@ -17,7 +17,7 @@ GDT_FLAGS_4K_16 equ 1000b
 GDT_FLAGS_4K_32 equ 1100b
 
 %define GDT_ENTRY(baseAddr, limit, accessByte, flag)                        \
-    dw limit & 0xFFFF,                                                               \
+    dw limit & 0xFFFF,                                                      \
        baseAddr & 0xFFFF,                                                   \
        (accessByte << 8) | ((baseAddr >> 16) & 0xFF),                       \
        ((baseAddr >> 24) & 0xFF00) | (flag << 4) | ((limit >> 16) & 0xF)
@@ -34,18 +34,12 @@ SECTION LOADER vstart=BASE_ADDRESS_GDT
     ; 4 - The loader code segment
     GDT_ENTRY(BASE_ADDRESS_UNLIMITED, LIMIT_UNLIMITED, GDT_ACCESS_BYTE_CODE, GDT_FLAGS_4K_32)
     ; 5 - The loader data segment
-    GDT_ENTRY(BASE_ADDRESS_LOADER_DATA, LIMIT_LOADER_DATA, GDT_ACCESS_BYTE_DATA, GDT_FLAGS_4K_32)
-    ; 6 - The loader rom segment
-    GDT_ENTRY(BASE_ADDRESS_UNLIMITED, LIMIT_UNLIMITED, GDT_ACCESS_BYTE_ROM, GDT_FLAGS_4K_32)
+    GDT_ENTRY(BASE_ADDRESS_UNLIMITED, LIMIT_UNLIMITED, GDT_ACCESS_BYTE_DATA, GDT_FLAGS_4K_32)
 
 
     ;Padding bits
     times (GDT_TABLE_SIZE - ($ - $$)) db 0
 
-    ;GDT Register
-    dw GDT_TABLE_SIZE - 1
-    dd BASE_ADDRESS_GDT
-    align 8, db 0
 
 ; ======================================
 ;  Appendix: GDT Entry Stucture Info 

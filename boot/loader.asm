@@ -6,16 +6,16 @@
 %include "boot.inc"
 
 ; Ram variables
-VAR_W_CURSOR_ADDR     equ 0        ; [fs:0] store cursor position
-ARD_BASE_ADDRESS      equ 0x1010   ; [0:ARD_BASE_ADDRESS] address of the first Address Range Descriptor
-ARD_UNIT_SIZE         equ 32       ; The size of each address range descriptor
+GDT_REGISTER_ADDR     equ 0x1000   ; GDT Register
+VAR_W_CURSOR_ADDR     equ 0x1008   ; cursor position
+VAR_DW_MEM_SIZE       equ 0x100C   ; detected memory size
+ARD_BASE_ADDRESS      equ 0x1100   ; address of the first Address Range Descriptor
 
-SECTION LOADER vstart=BASE_ADDRESS_LOADER_CODE
-    mov bp, BASE_ADDRESS_LOADER_CODE
+ARD_UNIT_SIZE         equ 20       ; The size of each address range descriptor
+
+SECTION LOADER vstart=BASE_ADDRESS_LOADER
+    mov bp, BASE_ADDRESS_LOADER
     mov sp, bp
-
-    mov ax, BASE_ADDRESS_LOADER_DATA >> 4
-    mov fs, ax
 
     ; Disable the cursor (BIOS interrupt INT 10H / AH=01H: Set Cursor Type)
     mov ah, 01h
@@ -46,7 +46,10 @@ call_int_e820h:
     add di, ARD_UNIT_SIZE
     cmp ebx, 0
     jnz call_int_e820h
-calculate_memory:
+    
+    ; Calculate the memory:
+    ; For all obtained address range descriptors, find the the highest address (i.e. base addr + limit)
+    ; that can be reached, which will be the memory size
     xor eax, eax
 .loop:
     mov ebx, dword [di]
@@ -60,11 +63,11 @@ calculate_memory:
     sub di, ARD_UNIT_SIZE
     jmp .loop
 .end_calculate:
-    push eax
+    mov dword [VAR_DW_MEM_SIZE], eax
     call print_int_16
     mov esi, str_mem_byte
     call print_str_16
-    pop eax
+    mov eax, [VAR_DW_MEM_SIZE]
     shr eax, 20
     call print_int_16
     mov esi, str_mem_megabyte
@@ -75,6 +78,8 @@ calculate_memory:
     ;----------------------------
     ;    Load GDT Table
     ;----------------------------
+    mov esi, msg_gdt_loading
+    call print_str_16
 load_gdt:
     ; BIOS interrupt INT 13H / AH=02H: Read Desired Sectors Into Memory
     mov ah, 02h
@@ -86,8 +91,6 @@ load_gdt:
     mov dl, 0x80
     int 13h
 
-    mov esi, msg_gdt_loaded
-    call print_str_16
 
     ;----------------------------
     ;  Activate Protected Mode
@@ -96,6 +99,10 @@ load_gdt:
     or al, 10b
     out 0x92, al
 
+    ;GDT Register
+    mov word  [GDT_REGISTER_ADDR], GDT_TABLE_SIZE - 1
+    mov dword [GDT_REGISTER_ADDR + 2], BASE_ADDRESS_GDT
+    mov word  [GDT_REGISTER_ADDR + 6], 0
     lgdt [GDT_REGISTER_ADDR]
 
     mov eax, cr0
@@ -105,11 +112,9 @@ load_gdt:
 
 [bits 32]
 protected_mode_start:
-    mov ax, SELECTOR_LOADER_ROM
+    mov ax, SELECTOR_LOADER_DATA
     mov ds, ax
     mov es, ax
-
-    mov ax, SELECTOR_LOADER_DATA
     mov fs, ax
     
     mov ax, SELECTOR_STACK
@@ -136,9 +141,9 @@ error_halt:
 
     msg_enter_loader      db "Loader start!", CR, LF, 0
     msg_dectect_mem       db "Detecting memory... ", 0
-    msg_gdt_loaded        db "Loading the global description table...", CR, LF, 0
+    msg_gdt_loading       db "Loading the global description table...done.", CR, LF, 0
     msg_protect_mode_on   db "Protected mode activated!", CR, LF, 0
-    msg_halt              db CR, LF, "That's all for now. The system is halted.", CR, LF, 0
+    msg_halt              db  CR, LF, "That's all for now. The system is halted.", CR, LF, 0
     msg_error_halt        db "Error encountered! System halted!!", CR, LF, 0
 
     str_mem_total         db " in total.", CR, LF, 0
@@ -170,7 +175,7 @@ VIDEO_MEM_PER_LINE  equ 160      ; 80 char/line * 2 byte/char
 init_print_16:
     mov ax, BASE_ADDRESS_VIDEO_MEMORY >> 4
     mov gs, ax
-    mov word [fs:VAR_W_CURSOR_ADDR], 0
+    mov word [VAR_W_CURSOR_ADDR], 0
 
     xor ebx, ebx
 .loop:
@@ -218,7 +223,7 @@ print_char_16:
 ;  Output   : void
 ; ----------------------------------------------------------
 print_str_16:
-    mov bx, [fs:VAR_W_CURSOR_ADDR]
+    mov bx, [VAR_W_CURSOR_ADDR]
 .loop:
     lodsb
     cmp al, 0
@@ -226,7 +231,7 @@ print_str_16:
     call print_char_16
     jmp .loop
 .end:
-    mov word [fs:VAR_W_CURSOR_ADDR], bx
+    mov word [VAR_W_CURSOR_ADDR], bx
     ret
 
 ; ----------------------------------------------------------
@@ -249,7 +254,7 @@ print_int_16:
     add dx, '0'
     jmp .transform
 .end_transform:
-    mov bx, [fs:VAR_W_CURSOR_ADDR]
+    mov bx, [VAR_W_CURSOR_ADDR]
 .loop:
     pop ax
     cmp ax, 0
@@ -257,7 +262,7 @@ print_int_16:
     call print_char_16
     jmp .loop
 .endloop:
-    mov word [fs:VAR_W_CURSOR_ADDR], bx
+    mov word [VAR_W_CURSOR_ADDR], bx
     ret
 .is_zero:
     push 0
@@ -296,7 +301,7 @@ print_char_32:
 ;  Function : The same as print_str_16
 ; ----------------------------------------------------------
 print_str_32:
-    mov bx, [fs:VAR_W_CURSOR_ADDR]
+    mov bx, [VAR_W_CURSOR_ADDR]
 .loop:
     lodsb
     cmp al, 0
@@ -304,7 +309,7 @@ print_str_32:
     call print_char_32
     jmp .loop
 .end:
-    mov word [fs:VAR_W_CURSOR_ADDR], bx
+    mov word [VAR_W_CURSOR_ADDR], bx
     ret
 
 ; ----------------------------------------------------------
@@ -325,7 +330,7 @@ print_int_32:
     add edx, '0'
     jmp .transform
 .end_transform:
-    mov bx, [fs:VAR_W_CURSOR_ADDR]
+    mov bx, [VAR_W_CURSOR_ADDR]
 .loop:
     pop eax
     cmp eax, 0
@@ -333,7 +338,7 @@ print_int_32:
     call print_char_32
     jmp .loop
 .endloop:
-    mov word [fs:VAR_W_CURSOR_ADDR], bx
+    mov word [VAR_W_CURSOR_ADDR], bx
     ret
 .is_zero:
     push 0
