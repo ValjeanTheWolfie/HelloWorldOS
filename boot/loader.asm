@@ -6,10 +6,10 @@
 %include "boot.inc"
 
 ; Ram variables
-GDT_REGISTER_ADDR     equ 0x1000   ; GDT Register
-VAR_W_CURSOR_ADDR     equ 0x1008   ; cursor position
-VAR_DW_MEM_SIZE       equ 0x100C   ; detected memory size
-ARD_BASE_ADDRESS      equ 0x1100   ; address of the first Address Range Descriptor
+VAR_W_CURSOR_ADDR     equ 0x4000   ; cursor position
+GDT_REGISTER_ADDR     equ 0x4008   ; GDT Register
+VAR_DW_MEM_SIZE       equ 0x4010   ; detected memory size
+ARD_BASE_ADDRESS      equ 0x4100   ; address of the first Address Range Descriptor
 
 ARD_UNIT_SIZE         equ 20       ; The size of each address range descriptor
 
@@ -30,6 +30,7 @@ SECTION LOADER vstart=BASE_ADDRESS_LOADER
     ;----------------------------
     ;    Detect Memory Size
     ; ----------------------------
+    
     ; use BIOS INT 15h, AX=E820h - Query System Address Map
     ; For details, please visit http://www.uruk.org/orig-grub/mem64mb.html
     mov esi, msg_dectect_mem
@@ -58,9 +59,9 @@ call_int_e820h:
     jb .eax_updated
     mov eax, ebx
 .eax_updated:
+    sub di, ARD_UNIT_SIZE
     cmp di, ARD_BASE_ADDRESS
     jb .end_calculate
-    sub di, ARD_UNIT_SIZE
     jmp .loop
 .end_calculate:
     mov dword [VAR_DW_MEM_SIZE], eax
@@ -91,6 +92,8 @@ load_gdt:
     mov dl, 0x80
     int 13h
 
+    mov esi, str_done
+    call print_str_16
 
     ;----------------------------
     ;  Activate Protected Mode
@@ -102,7 +105,6 @@ load_gdt:
     ;GDT Register
     mov word  [GDT_REGISTER_ADDR], GDT_TABLE_SIZE - 1
     mov dword [GDT_REGISTER_ADDR + 2], BASE_ADDRESS_GDT
-    mov word  [GDT_REGISTER_ADDR + 6], 0
     lgdt [GDT_REGISTER_ADDR]
 
     mov eax, cr0
@@ -128,6 +130,53 @@ protected_mode_start:
     mov esi, msg_protect_mode_on
     call print_str_32
 
+    ;----------------------------
+    ;     Enable paging
+    ;----------------------------
+    mov esi, msg_prepare_paging
+    call print_str_32
+
+    ; |       Page Directory Entry        | * |         Page Table Entry          |
+    ; | - | PS| - | A |PCD|PWT|U/S|R/W| P | * | G |PAT| D | A |PCD|PWT|U/S|R/W| P |
+    ; | 0   0   0   0   0   0  0/1  1   1 | * | 0   0   0   0   0   0  0/1  1   1 |
+    PAGE_SYS     equ     011b
+    PAGE_USER    equ     111b
+    ; Prepare the page directory/table
+    mov eax, 0
+    mov ecx, 1024
+.clear_page_dir:
+    mov dword byte [BASE_ADDRESS_PAGE_DIR + eax], 0
+    add eax, 4
+    loop .clear_page_dir
+
+    ; Establish page directory
+    mov eax, BASE_ADDRESS_PAGE_TABLE_SYS
+    or  eax, PAGE_SYS
+    mov [BASE_ADDRESS_PAGE_DIR + 0], eax
+    mov [BASE_ADDRESS_PAGE_DIR + (VIRTUAL_ADDRESS_KERNEL >> 20)], eax
+
+    ; Establish sys page table
+    mov eax, 0
+    mov ebx, PAGE_SYS
+    mov ecx, 1024
+.fill_pte:
+    mov [BASE_ADDRESS_PAGE_TABLE_SYS + eax], ebx
+    add eax, 4
+    add ebx, 4096     ;+4KiB
+    loop .fill_pte
+
+    ; Activate paging
+    mov eax, BASE_ADDRESS_PAGE_DIR
+    mov cr3, eax
+    
+    mov eax, cr0
+    or  eax, 0x80000000
+    mov cr0, eax
+
+
+    mov esi, msg_paging_on
+    call print_str_32
+
     mov esi, msg_halt
     call print_str_32
 
@@ -138,14 +187,19 @@ error_halt:
     call print_str_32
     jmp $
 
-
+; ========================
+;      Message Data
+; ========================
     msg_enter_loader      db "Loader start!", CR, LF, 0
     msg_dectect_mem       db "Detecting memory... ", 0
-    msg_gdt_loading       db "Loading the global description table...done.", CR, LF, 0
+    msg_gdt_loading       db "Loading the global description table...", 0
     msg_protect_mode_on   db "Protected mode activated!", CR, LF, 0
+    msg_prepare_paging    db "Establishing page directory and tables...", CR, LF, 0
+    msg_paging_on         db "Paging activated!", CR, LF, 0
     msg_halt              db  CR, LF, "That's all for now. The system is halted.", CR, LF, 0
     msg_error_halt        db "Error encountered! System halted!!", CR, LF, 0
 
+    str_done              db "done.", CR, LF, 0
     str_mem_total         db " in total.", CR, LF, 0
     str_mem_byte          db " bytes (", 0
     str_mem_megabyte      db " MiB)", 0
@@ -162,7 +216,7 @@ error_halt:
 ;   - print_xxx_16 should be used in the real mode
 ;   - print_xxx_32 should be used in the protected mode
 ; ==============================================================================
-PRINT_DEFAULT_COLOR equ 0x07     ;white
+PRINT_DEFAULT_COLOR equ 0x07     ; white
 VIDEO_MEM_PER_LINE  equ 160      ; 80 char/line * 2 byte/char
 
 [bits 16]
@@ -223,7 +277,7 @@ print_char_16:
 ;  Output   : void
 ; ----------------------------------------------------------
 print_str_16:
-    mov bx, [VAR_W_CURSOR_ADDR]
+    mov ebx, [VAR_W_CURSOR_ADDR]
 .loop:
     lodsb
     cmp al, 0
@@ -254,7 +308,7 @@ print_int_16:
     add dx, '0'
     jmp .transform
 .end_transform:
-    mov bx, [VAR_W_CURSOR_ADDR]
+    mov ebx, [VAR_W_CURSOR_ADDR]
 .loop:
     pop ax
     cmp ax, 0
@@ -301,7 +355,7 @@ print_char_32:
 ;  Function : The same as print_str_16
 ; ----------------------------------------------------------
 print_str_32:
-    mov bx, [VAR_W_CURSOR_ADDR]
+    mov ebx, [VAR_W_CURSOR_ADDR]
 .loop:
     lodsb
     cmp al, 0
@@ -330,7 +384,7 @@ print_int_32:
     add edx, '0'
     jmp .transform
 .end_transform:
-    mov bx, [VAR_W_CURSOR_ADDR]
+    mov ebx, [VAR_W_CURSOR_ADDR]
 .loop:
     pop eax
     cmp eax, 0

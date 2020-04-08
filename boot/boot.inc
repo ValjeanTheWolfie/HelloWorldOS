@@ -22,7 +22,9 @@ HD_SECTOR_CNT_KERNEL        equ 64
 ;         Memory layout
 ; ---------------------------------
 BASE_ADDRESS_UNLIMITED      equ 0
-BASE_ADDRESS_GDT            equ 0x800
+BASE_ADDRESS_GDT            equ 0xE00
+BASE_ADDRESS_PAGE_DIR       equ 0x1000
+BASE_ADDRESS_PAGE_TABLE_SYS equ 0x2000
 BASE_ADDRESS_LOADER         equ 0x8000
 BASE_ADDRESS_STACK          equ 0x70000
 BASE_ADDRESS_VIDEO_MEMORY   equ 0xb8000
@@ -40,3 +42,5 @@ SELECTOR_LOADER_DATA        equ (5 << 3)
 GDT_TABLE_SIZE              equ 512  ; 512 Bytes, i.e. 64 entries
 
 STACK_TOP_INIT_OFFSET       equ 0x10000
+
+VIRTUAL_ADDRESS_KERNEL      equ 0xC0000000   ; 3GiB space
