@@ -98,18 +98,23 @@ load_gdt:
     ;----------------------------
     ;  Activate Protected Mode
     ;----------------------------
+    cli ; Disable interrupts
+    ; Open A20 line
     in al, 0x92
     or al, 10b
     out 0x92, al
 
-    ;GDT Register
+    ; Load GDT Register
     mov word  [GDT_REGISTER_ADDR], GDT_TABLE_SIZE - 1
     mov dword [GDT_REGISTER_ADDR + 2], BASE_ADDRESS_GDT
     lgdt [GDT_REGISTER_ADDR]
 
+    ; Switch on the PE (Protection Enable) bit in CR0 (Control Register 0)
     mov eax, cr0
     or eax, 1
     mov cr0, eax
+
+    ; Far jump, using the new seletor
     jmp dword SELECTOR_LOADER_CODE: protected_mode_start
 
 [bits 32]
@@ -118,10 +123,8 @@ protected_mode_start:
     mov ds, ax
     mov es, ax
     mov fs, ax
-    
-    mov ax, SELECTOR_STACK
     mov ss, ax
-    mov esp, STACK_TOP_INIT_OFFSET
+    mov esp, STACK_TOP_PROTECT_MODE
     mov ebp, esp
 
     mov ax, SELECTOR_VIDEO
@@ -177,6 +180,115 @@ protected_mode_start:
     mov esi, msg_paging_on
     call print_str_32
 
+    ;------------------------------
+    ;  Read kernel from the disk
+    ;------------------------------
+    mov esi, msg_read_kernel
+    call print_str_32
+read_kernel_from_disk:
+    ; Set sector count
+    mov dx, 0x1f2
+    mov al, HD_SECTOR_CNT_KERNEL
+    out dx, al
+
+    ; Inform hard disk the LBA address
+    mov eax, HD_LBA_KERNEL
+    ; bit7  - bit0
+    mov dx, 0x1f3
+    out dx, al
+    ; bit15 - bit8
+    shr eax, 8
+    mov dx, 0x1f4
+    out dx, al
+    ; bit23 - bit16
+    shr eax, 8
+    mov dx, 0x1f5
+    out dx, al
+    ; device register
+    shr eax, 8
+    and al, 0x0f       ;lower 4 bits: LBA bit27 - bit24
+    or  al, 1110_0000b ;from master, LBA mode
+    mov dx, 0x1f6
+    out dx, al
+
+    ; Send read command
+    mov dx, 0x1f7
+    mov al, 0x20
+    out dx, al
+
+.wait_ready:
+    nop
+    in al, dx
+    and al, 1000_1000b
+    cmp al, 0000_1000b
+    jne .wait_ready
+
+    ; Read data from port 0x01f0
+    mov ebx, BASE_ADDRESS_READ_KERNEL_BUFF
+    mov ecx, HD_SECTOR_CNT_KERNEL
+    shl ecx, 8     ; left shift 8 bits - multiply 512 / 2 (bytes per sector / bytes read per time)
+    mov dx, 0x1f0
+.read_loop:
+    in ax, dx
+    mov word [ebx], ax
+    add ebx, 2
+    loop .read_loop
+
+    
+
+    ;------------------------------
+    ;  Parse the ELF kernel file
+    ;------------------------------
+    mov esi, msg_load_kernel
+    call print_str_32
+
+    ELF_HDR_PHOFF              equ    28    ; Elf32_Off e_phoff;
+    ELF_HDR_PHENTSIZE          equ    38    ; Elf32_Half e_phentsize;
+    ELF_HDR_PHNUM              equ    40    ; Elf32_Half e_phnum;
+
+    ELF_PHDR_TYPE              equ    0     ; Elf32_Word p_type;
+    ELF_PHDR_OFFSET            equ    4     ; Elf32_Off  p_offset;
+    ELF_PHDR_VADDR             equ    8     ; Elf32_Addr p_vaddr;
+    ELF_PHDR_FILESZ            equ    16    ; Elf32_Word p_filesz;
+    ELF_PHDR_MEMSZ             equ    20    ; Elf32_Word p_memsz;
+
+    xor ecx, ecx
+    xor edx, edx
+    mov ebx, [BASE_ADDRESS_READ_KERNEL_BUFF + ELF_HDR_PHOFF]
+    add ebx, BASE_ADDRESS_READ_KERNEL_BUFF
+    mov cx,  [BASE_ADDRESS_READ_KERNEL_BUFF + ELF_HDR_PHNUM]
+    mov dx,  [BASE_ADDRESS_READ_KERNEL_BUFF + ELF_HDR_PHENTSIZE]
+
+.load_kernel:
+    ; Test valid or not
+    mov eax, [ebx + ELF_PHDR_TYPE]
+    cmp eax, 0
+    jz .null_seg
+    ; Source address -> ESI
+    mov eax, [ebx + ELF_PHDR_OFFSET]
+    add eax, BASE_ADDRESS_READ_KERNEL_BUFF
+    mov esi, eax
+    ; Destination address -> EDI
+    mov eax, [ebx + ELF_PHDR_VADDR]
+    mov edi, eax
+    ; Segment length -> ECX
+    push ecx
+    mov ecx, [ebx + ELF_PHDR_FILESZ]
+    ; Copy
+    rep movsb
+    ; recover ECX
+    pop ecx
+.null_seg:
+    add ebx, edx
+    loop .load_kernel
+    ;------------------------------
+    ;  Finally, RUN THE KERNEL!!!
+    ;------------------------------
+    ; This is a temporary "Hello world" kernel. Therefore, 'call' is used here. 
+    call VIRTUAL_ADDRESS_KERNEL
+    ;jmp dword SELECTOR_KERNEL_CODE: VIRTUAL_ADDRESS_KERNEL
+
+
     mov esi, msg_halt
     call print_str_32
 
@@ -187,6 +299,8 @@ error_halt:
     call print_str_32
     jmp $
 
+
+
 ; ========================
 ;      Message Data
 ; ========================
@@ -196,7 +310,10 @@ error_halt:
     msg_protect_mode_on   db "Protected mode activated!", CR, LF, 0
     msg_prepare_paging    db "Establishing page directory and tables...", CR, LF, 0
     msg_paging_on         db "Paging activated!", CR, LF, 0
-    msg_halt              db  CR, LF, "That's all for now. The system is halted.", CR, LF, 0
+    msg_read_kernel       db "Reading the hard disk...", CR, LF, 0
+    msg_load_kernel       db "Loading kernel...", CR, LF, 0
+
+    msg_halt              db  CR, LF, CR, LF, "That's all for now. The system is halted.", CR, LF, 0
     msg_error_halt        db "Error encountered! System halted!!", CR, LF, 0
 
     str_done              db "done.", CR, LF, 0
